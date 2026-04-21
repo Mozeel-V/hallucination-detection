@@ -56,7 +56,7 @@ from splitting import split_data
 DATA_FILE     = "./data/dataset.csv"   # path to the dataset CSV
 OUTPUT_FILE   = "results.json"         # where to write the results summary
 BATCH_SIZE    = 4
-USE_GEOMETRIC = False                  # set True to enable geometric feature extraction
+USE_GEOMETRIC = True
 TEST_FILE        = "./data/test.csv"   # competition test set (labels are null)
 PREDICTIONS_FILE = "predictions.csv"   # output file with predicted labels
 
@@ -104,8 +104,6 @@ if __name__=='__main__':
     label_str = "hallucinated" if int(row0["label"]) else "truthful"
     print(f"── label : {int(row0['label'])}  ({label_str})")
 
-
-    # Load the LLM
     model, tokenizer = get_model_and_tokenizer()
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
