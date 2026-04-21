@@ -53,7 +53,7 @@ def aggregate(
         feat = hidden_states[layer_idx, last_pos]
         features.append(feat)
 
-    return torch.cat(features, dim=0)
+    return torch.stack(features, dim=0).mean(dim=0)
 
 def extract_geometric_features(
     hidden_states: torch.Tensor,
@@ -140,6 +140,7 @@ def aggregation_and_feature_extraction(
 
     if use_geometric:
         geo_features = extract_geometric_features(hidden_states, attention_mask)
+        geo_features = geo_features.to(agg_features.device)
         return torch.cat([agg_features, geo_features], dim=0)
 
     return agg_features
