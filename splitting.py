@@ -18,8 +18,7 @@ from __future__ import annotations
 
 import numpy as np
 import pandas as pd
-from sklearn.model_selection import train_test_split
-
+from sklearn.model_selection import StratifiedKFold, train_test_split
 
 def split_data(
     y: np.ndarray,
@@ -50,21 +49,26 @@ def split_data(
         Replace or extend the skeleton below.  The only contract is that the
         function returns the list described above.
     """
-
+    
+    # Implement 5-Fold Stratified CV for robust evaluation
+    skf = StratifiedKFold(n_splits=5, shuffle=True, random_state=random_state)
     idx = np.arange(len(y))
+    
+    splits = []
+    
+    # train_val_idx represents ~80% of data, test_idx represents ~20%
+    for train_val_idx, test_idx in skf.split(idx, y):
+        
+        # Calculate the relative size needed to get exactly 'val_size' of the total dataset
+        relative_val = val_size / (1.0 - (1.0 / skf.n_splits))
+        
+        # Split the 80% chunk into actual training data and validation data (for threshold tuning)
+        idx_train, idx_val = train_test_split(
+            train_val_idx,
+            test_size=relative_val,
+            random_state=random_state,
+            stratify=y[train_val_idx],
+        )
+        splits.append((idx_train, idx_val, test_idx))
 
-    idx_train_val, idx_test = train_test_split(
-        idx,
-        test_size=test_size,
-        random_state=random_state,
-        stratify=y,
-    )
-    relative_val = val_size / (1.0 - test_size)
-    idx_train, idx_val = train_test_split(
-        idx_train_val,
-        test_size=relative_val,
-        random_state=random_state,
-        stratify=y[idx_train_val],
-    )
-    return [(idx_train, idx_val, idx_test)]
-
+    return splits

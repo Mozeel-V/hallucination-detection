@@ -104,6 +104,8 @@ if __name__=='__main__':
     label_str = "hallucinated" if int(row0["label"]) else "truthful"
     print(f"── label : {int(row0['label'])}  ({label_str})")
 
+
+    # Load the LLM
     model, tokenizer = get_model_and_tokenizer()
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token

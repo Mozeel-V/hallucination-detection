@@ -18,7 +18,9 @@ single entry point called from the notebook.
 from __future__ import annotations
 
 import torch
+import torch.nn.functional as F
 
+TARGET_LAYERS = list(range(12, 21))
 
 def aggregate(
     hidden_states: torch.Tensor,
@@ -41,22 +43,17 @@ def aggregate(
         Replace or extend the skeleton below with alternative layer selection,
         token pooling (mean, max, weighted), or multi-layer fusion strategies.
     """
-    # ------------------------------------------------------------------
-    # STUDENT: Replace or extend the aggregation below.
-    # ------------------------------------------------------------------
+    
+    real_positions = attention_mask.nonzero(as_tuple=False)
+    last_pos = int(real_positions[-1].item())
 
-    # Default: last real token of the final transformer layer.
-    layer = hidden_states[-1]          # (seq_len, hidden_dim)
+    features = []
+    
+    for layer_idx in TARGET_LAYERS:
+        feat = hidden_states[layer_idx, last_pos]
+        features.append(feat)
 
-    # Find the index of the last real (non-padding) token.
-    real_positions = attention_mask.nonzero(as_tuple=False)  # (n_real, 1)
-    last_pos = int(real_positions[-1].item())                 # scalar index
-
-    feature = layer[last_pos]          # (hidden_dim,)
-
-    return feature
-    # ------------------------------------------------------------------
-
+    return torch.cat(features, dim=0)
 
 def extract_geometric_features(
     hidden_states: torch.Tensor,
@@ -81,13 +78,39 @@ def extract_geometric_features(
         norms, inter-layer cosine similarity (representation drift), or
         sequence length.
     """
-    # ------------------------------------------------------------------
-    # STUDENT: Replace or extend the geometric feature extraction below.
-    # ------------------------------------------------------------------
+    
+    real_positions = attention_mask.nonzero(as_tuple=False)
+    last_pos = int(real_positions[-1].item())
+    
+    layer_states = torch.stack([hidden_states[i, last_pos] for i in TARGET_LAYERS])
+    
+    features = []
 
-    # Placeholder: returns an empty tensor (no geometric features).
-    return torch.zeros(0)
+    mean_state = torch.mean(layer_states, dim=0, keepdim=True)
+    centered_states = layer_states - mean_state
+    
+    gram_matrix = torch.mm(centered_states, centered_states.t()) / max(1, (layer_states.size(0) - 1))
+    
+    eigenvalues = torch.linalg.eigvalsh(gram_matrix)
+    
+    eigenvalues = torch.sort(eigenvalues, descending=True).values
+    top_k_eigen = eigenvalues[:3].tolist()
+    features.extend(top_k_eigen)
 
+    final_layer_state = layer_states[-1]
+    
+    for i in range(len(layer_states) - 1):
+        sim_to_final = F.cosine_similarity(
+            layer_states[i].unsqueeze(0), 
+            final_layer_state.unsqueeze(0)
+        ).item()
+        features.append(sim_to_final)
+        
+    for i in range(1, len(layer_states)):
+        step_distance = torch.norm(layer_states[i] - layer_states[i-1], p=2).item()
+        features.append(step_distance)
+
+    return torch.tensor(features, dtype=torch.float32)
 
 def aggregation_and_feature_extraction(
     hidden_states: torch.Tensor,

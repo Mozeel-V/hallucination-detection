@@ -15,6 +15,7 @@ import torch
 import torch.nn as nn
 from sklearn.metrics import f1_score
 from sklearn.preprocessing import StandardScaler
+from sklearn.decomposition import PCA
 
 
 class HallucinationProbe(nn.Module):
@@ -30,6 +31,8 @@ class HallucinationProbe(nn.Module):
         self._net: nn.Sequential | None = None  # built lazily in fit()
         self._scaler = StandardScaler()
         self._threshold: float = 0.5  # tuned by fit_hyperparameters()
+        # Compress the wide semantic vectors to prevent catastrophic overfitting
+        self._pca = PCA(n_components=64) 
 
     # ------------------------------------------------------------------
     # STUDENT: Replace or extend the network definition below.
@@ -43,9 +46,14 @@ class HallucinationProbe(nn.Module):
             input_dim: Feature vector dimensionality.
         """
         self._net = nn.Sequential(
-            nn.Linear(input_dim, 256),
+            nn.Linear(input_dim, 64),
+            nn.BatchNorm1d(64),
             nn.ReLU(),
-            nn.Linear(256, 1),
+            nn.Dropout(0.3),
+            nn.Linear(64, 32),
+            nn.BatchNorm1d(32),
+            nn.ReLU(),
+            nn.Linear(32, 1),
         )
 
     # ------------------------------------------------------------------
@@ -80,10 +88,15 @@ class HallucinationProbe(nn.Module):
             ``self`` (for method chaining).
         """
         X_scaled = self._scaler.fit_transform(X)
+        if X_scaled.shape[1] > 64:
+            X_features = self._pca.fit_transform(X_scaled)
+        else:
+            self._pca = None
+            X_features = X_scaled
 
-        self._build_network(X_scaled.shape[1])
+        self._build_network(X_features.shape[1])
 
-        X_t = torch.from_numpy(X_scaled).float()
+        X_t = torch.from_numpy(X_features).float()
         y_t = torch.from_numpy(y.astype(np.float32))
 
         # Weight positive examples by neg/pos ratio to handle class imbalance.
@@ -95,10 +108,11 @@ class HallucinationProbe(nn.Module):
         # ------------------------------------------------------------------
         # STUDENT: Replace or extend the training loop below.
         # ------------------------------------------------------------------
-        optimizer = torch.optim.Adam(self.parameters(), lr=1e-3)
+        # AdamW with weight decay for added regularization
+        optimizer = torch.optim.AdamW(self.parameters(), lr=1e-3, weight_decay=1e-3)
 
         self.train()
-        for _ in range(200):
+        for _ in range(150): # 150 epochs is plenty for this size
             optimizer.zero_grad()
             logits = self(X_t)
             loss = criterion(logits, y_t)
@@ -170,7 +184,12 @@ class HallucinationProbe(nn.Module):
             Used to compute AUROC.
         """
         X_scaled = self._scaler.transform(X)
-        X_t = torch.from_numpy(X_scaled).float()
+        if self._pca is not None:
+            X_features = self._pca.transform(X_scaled)
+        else:
+            X_features = X_scaled
+            
+        X_t = torch.from_numpy(X_features).float()
         with torch.no_grad():
             logits = self(X_t)
             prob_pos = torch.sigmoid(logits).numpy()
